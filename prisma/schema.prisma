@@ -27,6 +27,9 @@ model User {
   quizResults             QuizResult[]
   createdPurchaseCodes    PurchaseCode[] @relation("CodeCreator")
   usedPurchaseCodes       PurchaseCode[] @relation("CodeUser")
+  createdChapterCodes     ChapterCode[] @relation("ChapterCodeCreator")
+  usedChapterCodes        ChapterCode[] @relation("ChapterCodeUser")
+  chapterAccesses         ChapterAccess[]
 }
 
 model Course {
@@ -81,6 +84,8 @@ model Chapter {
 
   userProgress UserProgress[]
   attachments ChapterAttachment[] // New relation for multiple documents
+  chapterCodes ChapterCode[]
+  chapterAccesses ChapterAccess[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -154,6 +159,43 @@ model PurchaseCode {
     @@index([code])
     @@index([createdBy])
     @@index([isUsed])
+}
+
+model ChapterCode {
+    id String @id @default(uuid())
+    code String @unique
+    chapterId String
+    createdBy String
+    usedBy String?
+    usedAt DateTime?
+    isUsed Boolean @default(false)
+    chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+    creator User @relation("ChapterCodeCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+    user User? @relation("ChapterCodeUser", fields: [usedBy], references: [id], onDelete: SetNull)
+    chapterAccesses ChapterAccess[]
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([chapterId])
+    @@index([code])
+    @@index([createdBy])
+    @@index([isUsed])
+}
+
+model ChapterAccess {
+    id String @id @default(uuid())
+    userId String
+    chapterId String
+    chapterCodeId String
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+    chapterCode ChapterCode @relation(fields: [chapterCodeId], references: [id], onDelete: Cascade)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([userId, chapterId])
+    @@index([userId])
+    @@index([chapterId])
 }
 
 model BalanceTransaction {

@@ -3,12 +3,24 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { randomBytes } from "crypto";
 
-// Generate unique code
-function generateCode(): string {
+// Generate unique code (must be unique across both PurchaseCode and ChapterCode)
+async function generateUniqueCode(): Promise<string> {
+  let code: string;
+  let isUnique = false;
+  while (!isUnique) {
+    code = randomBytes(8).toString("hex").toUpperCase();
+    const [existingPurchase, existingChapter] = await Promise.all([
+      db.purchaseCode.findUnique({ where: { code } }),
+      db.chapterCode.findUnique({ where: { code } }),
+    ]);
+    if (!existingPurchase && !existingChapter) {
+      return code;
+    }
+  }
   return randomBytes(8).toString("hex").toUpperCase();
 }
 
-// GET - List all codes
+// GET - List all codes (course and chapter codes)
 export async function GET(req: NextRequest) {
   try {
     const { userId, user } = await auth();
@@ -21,35 +33,35 @@ export async function GET(req: NextRequest) {
       return new NextResponse("Forbidden", { status: 403 });
     }
 
-    const codes = await db.purchaseCode.findMany({
-      include: {
-        course: {
-          select: {
-            id: true,
-            title: true,
-          },
+    const [purchaseCodes, chapterCodes] = await Promise.all([
+      db.purchaseCode.findMany({
+        include: {
+          course: { select: { id: true, title: true } },
+          creator: { select: { id: true, fullName: true, phoneNumber: true } },
+          user: { select: { id: true, fullName: true, phoneNumber: true } },
         },
-        creator: {
-          select: {
-            id: true,
-            fullName: true,
-            phoneNumber: true,
+        orderBy: { createdAt: "desc" },
+      }),
+      db.chapterCode.findMany({
+        include: {
+          chapter: {
+            select: {
+              id: true,
+              title: true,
+              course: { select: { id: true, title: true } },
+            },
           },
+          creator: { select: { id: true, fullName: true, phoneNumber: true } },
+          user: { select: { id: true, fullName: true, phoneNumber: true } },
         },
-        user: {
-          select: {
-            id: true,
-            fullName: true,
-            phoneNumber: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
-    return NextResponse.json(codes);
+    return NextResponse.json({
+      courseCodes: purchaseCodes,
+      chapterCodes: chapterCodes,
+    });
   } catch (error) {
     console.error("[ADMIN_CODES_GET]", error);
     return new NextResponse("Internal Error", { status: 500 });
@@ -69,13 +81,64 @@ export async function POST(req: NextRequest) {
       return new NextResponse("Forbidden", { status: 403 });
     }
 
-    const { courseId, count } = await req.json();
+    const { courseId, chapterId, count } = await req.json();
 
-    if (!courseId || !count || count < 1 || count > 100) {
-      return new NextResponse("Invalid request: courseId and count (1-100) required", { status: 400 });
+    if (!count || count < 1 || count > 100) {
+      return new NextResponse("Invalid request: count (1-100) required", { status: 400 });
     }
 
-    // Verify course exists
+    if (chapterId) {
+      const chapter = await db.chapter.findUnique({
+        where: { id: chapterId },
+        include: { course: true },
+      });
+
+      if (!chapter) {
+        return new NextResponse("Chapter not found", { status: 404 });
+      }
+
+      const codes: { code: string; chapterId: string; createdBy: string; isUsed: boolean }[] = [];
+      for (let i = 0; i < count; i++) {
+        codes.push({
+          code: await generateUniqueCode(),
+          chapterId,
+          createdBy: userId,
+          isUsed: false,
+        });
+      }
+
+      await db.chapterCode.createMany({ data: codes });
+
+      const createdCodesWithDetails = await db.chapterCode.findMany({
+        where: {
+          chapterId,
+          code: { in: codes.map((c) => c.code) },
+        },
+        include: {
+          chapter: {
+            select: {
+              id: true,
+              title: true,
+              course: { select: { id: true, title: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: count,
+      });
+
+      return NextResponse.json({
+        success: true,
+        type: "chapter",
+        codes: createdCodesWithDetails,
+        count: createdCodesWithDetails.length,
+      });
+    }
+
+    if (!courseId) {
+      return new NextResponse("Invalid request: courseId or chapterId required", { status: 400 });
+    }
+
     const course = await db.course.findUnique({
       where: { id: courseId },
     });
@@ -84,63 +147,35 @@ export async function POST(req: NextRequest) {
       return new NextResponse("Course not found", { status: 404 });
     }
 
-    // Generate codes
-    const codes = [];
+    const codes: { code: string; courseId: string; createdBy: string; isUsed: boolean }[] = [];
     for (let i = 0; i < count; i++) {
-      let code: string;
-      let isUnique = false;
-      
-      // Ensure code is unique
-      while (!isUnique) {
-        code = generateCode();
-        const existing = await db.purchaseCode.findUnique({
-          where: { code },
-        });
-        if (!existing) {
-          isUnique = true;
-        }
-      }
-
       codes.push({
-        code,
+        code: await generateUniqueCode(),
         courseId,
         createdBy: userId,
         isUsed: false,
       });
     }
 
-    // Create codes in database
-    const createdCodes = await db.purchaseCode.createMany({
-      data: codes,
-    });
+    await db.purchaseCode.createMany({ data: codes });
 
-    // Fetch created codes with course info
     const createdCodesWithDetails = await db.purchaseCode.findMany({
       where: {
-        createdBy: userId,
         courseId,
-        code: {
-          in: codes.map((c) => c.code),
-        },
+        code: { in: codes.map((c) => c.code) },
       },
       include: {
-        course: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
+        course: { select: { id: true, title: true } },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
       take: count,
     });
 
     return NextResponse.json({
       success: true,
+      type: "course",
       codes: createdCodesWithDetails,
-      count: createdCodes.count,
+      count: createdCodesWithDetails.length,
     });
   } catch (error) {
     console.error("[ADMIN_CODES_POST]", error);

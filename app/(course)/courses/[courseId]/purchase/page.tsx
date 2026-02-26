@@ -89,17 +89,33 @@ export default function PurchasePage({
 
       if (response.ok) {
         const data = await response.json();
-        toast.success("تم استبدال الكود بنجاح! تم شراء الكورس");
-        setCodeRedeemed(true);
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 1500);
+        if (data.type === "chapter" && data.chapter?.courseId === courseId) {
+          toast.success("تم فتح الفصل بنجاح!");
+          setCodeRedeemed(true);
+          setTimeout(() => {
+            router.push(`/courses/${courseId}/chapters/${data.chapter.id}`);
+          }, 1500);
+        } else if (data.type === "course") {
+          toast.success("تم استبدال الكود بنجاح! تم شراء الكورس");
+          setCodeRedeemed(true);
+          setTimeout(() => {
+            router.push("/dashboard");
+          }, 1500);
+        } else if (data.type === "chapter") {
+          toast.error("هذا الكود خاص بفصل في كورس آخر");
+        } else {
+          toast.success("تم استبدال الكود بنجاح");
+          setCodeRedeemed(true);
+          setTimeout(() => router.push("/dashboard"), 1500);
+        }
       } else {
         const error = await response.text();
         if (error.includes("already been used")) {
           toast.error("هذا الكود مستخدم بالفعل");
         } else if (error.includes("already purchased")) {
           toast.error("لقد قمت بشراء هذه الكورس مسبقاً");
+        } else if (error.includes("already unlocked")) {
+          toast.error("لقد قمت بفتح هذا الفصل مسبقاً");
         } else if (error.includes("Invalid code")) {
           toast.error("كود غير صحيح");
         } else {

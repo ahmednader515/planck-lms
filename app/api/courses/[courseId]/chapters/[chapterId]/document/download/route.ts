@@ -23,6 +23,7 @@ export async function GET(
             select: {
                 documentUrl: true,
                 documentName: true,
+                isFree: true,
                 course: {
                     select: {
                         userId: true,
@@ -36,19 +37,26 @@ export async function GET(
             return new NextResponse("Document not found", { status: 404 });
         }
 
-        // Check if user has access to the course
-        const hasAccess = await db.purchase.findFirst({
-            where: {
-                userId,
-                courseId: resolvedParams.courseId,
-                status: "ACTIVE"
-            }
-        });
-
+        // Check if user has access (course purchase or chapter unlock)
+        const [coursePurchase, chapterAccessRecord] = await Promise.all([
+            db.purchase.findFirst({
+                where: {
+                    userId,
+                    courseId: resolvedParams.courseId,
+                    status: "ACTIVE"
+                }
+            }),
+            db.chapterAccess.findFirst({
+                where: {
+                    userId,
+                    chapterId: resolvedParams.chapterId,
+                }
+            })
+        ]);
+        const hasAccess = !!coursePurchase || !!chapterAccessRecord || !!chapter.isFree;
         const isCourseOwner = chapter.course.userId === userId;
-        const isPublished = chapter.course.isPublished;
 
-        if (!hasAccess && !isCourseOwner && !isPublished) {
+        if (!hasAccess && !isCourseOwner) {
             return new NextResponse("Unauthorized", { status: 401 });
         }
 

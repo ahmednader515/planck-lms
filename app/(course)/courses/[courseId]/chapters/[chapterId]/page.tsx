@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import axios, { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ChevronLeft, ChevronRight, CheckCircle2, Circle, Lock, FileText, Download } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
@@ -43,6 +45,8 @@ const ChapterPage = () => {
   const [isCompleted, setIsCompleted] = useState(false);
   const [courseProgress, setCourseProgress] = useState(0);
   const [hasAccess, setHasAccess] = useState(false);
+  const [chapterCode, setChapterCode] = useState("");
+  const [isRedeeming, setIsRedeeming] = useState(false);
 
   console.log("🔍 ChapterPage render:", {
     chapterId: routeParams.chapterId,
@@ -144,7 +148,7 @@ const ChapterPage = () => {
         const [chapterResponse, progressResponse, accessResponse] = await Promise.all([
           axios.get(`/api/courses/${routeParams.courseId}/chapters/${routeParams.chapterId}`),
           axios.get(`/api/courses/${routeParams.courseId}/progress`),
-          axios.get(`/api/courses/${routeParams.courseId}/access`)
+          axios.get(`/api/courses/${routeParams.courseId}/chapters/${routeParams.chapterId}/access`)
         ]);
         
         console.log("🔍 ChapterPage data fetched:", {
@@ -227,6 +231,45 @@ const ChapterPage = () => {
     }
   };
 
+  const handleRedeemChapterCode = async () => {
+    if (!chapterCode.trim()) {
+      toast.error("يرجى إدخال الكود");
+      return;
+    }
+    setIsRedeeming(true);
+    try {
+      const response = await fetch("/api/codes/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: chapterCode.trim() }),
+      });
+      const text = await response.text();
+      let data: { type?: string; chapter?: { id: string } } = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Response was plain text error
+      }
+      if (response.ok && data.type === "chapter" && data.chapter?.id === routeParams.chapterId) {
+        toast.success("تم فتح الفصل بنجاح!");
+        setHasAccess(true);
+        setChapterCode("");
+      } else if (response.ok && data.type === "chapter") {
+        toast.error("هذا الكود خاص بفصل آخر في كورس مختلف");
+      } else {
+        if (text.includes("already been used")) toast.error("هذا الكود مستخدم بالفعل");
+        else if (text.includes("already unlocked")) toast.error("لقد قمت بفتح هذا الفصل مسبقاً");
+        else if (text.includes("Invalid code")) toast.error("كود غير صحيح");
+        else toast.error(text || "حدث خطأ أثناء استبدال الكود");
+      }
+    } catch (error) {
+      console.error("Error redeeming chapter code:", error);
+      toast.error("حدث خطأ أثناء استبدال الكود");
+    } finally {
+      setIsRedeeming(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -245,13 +288,32 @@ const ChapterPage = () => {
 
   if (!hasAccess && !chapter.isFree) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center space-y-4">
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="text-center space-y-6 max-w-md">
           <Lock className="h-8 w-8 mx-auto text-muted-foreground" />
           <h2 className="text-2xl font-semibold">هذا الفصل مغلق</h2>
-          <p className="text-muted-foreground">شراء الكورس للوصول إلى جميع الفصول</p>
-          <Button onClick={() => router.push(`/courses/${routeParams.courseId}/purchase`)}>
-            شراء الكورس
+          <p className="text-muted-foreground">شراء الكورس أو استخدم كود الفصل للوصول</p>
+          <div className="space-y-3 p-4 border rounded-lg bg-muted/50">
+            <Label className="text-sm font-medium">لديك كود لفصل هذا الفصل؟</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="أدخل الكود"
+                value={chapterCode}
+                onChange={(e) => setChapterCode(e.target.value.toUpperCase())}
+                disabled={isRedeeming}
+                className="text-center font-mono"
+              />
+              <Button
+                onClick={handleRedeemChapterCode}
+                disabled={isRedeeming || !chapterCode.trim()}
+                className="shrink-0"
+              >
+                {isRedeeming ? "جاري..." : "فتح الفصل"}
+              </Button>
+            </div>
+          </div>
+          <Button onClick={() => router.push(`/courses/${routeParams.courseId}/purchase`)} variant="outline">
+            شراء الكورس كاملاً
           </Button>
         </div>
       </div>

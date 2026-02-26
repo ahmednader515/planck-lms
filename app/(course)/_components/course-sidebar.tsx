@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, use } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { CheckCircle, Circle } from "lucide-react";
+import { CheckCircle, Circle, Lock } from "lucide-react";
 import axios from "axios";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +33,7 @@ interface CourseContent {
   position: number;
   type: 'chapter' | 'quiz';
   isFree?: boolean;
+  hasAccess?: boolean;
   userProgress?: {
     isCompleted: boolean;
   }[];
@@ -149,6 +150,7 @@ export const CourseSidebar = ({ course }: CourseSidebarProps) => {
           const isCompleted = content.type === 'chapter' 
             ? content.userProgress?.[0]?.isCompleted || false
             : content.quizResults && content.quizResults.length > 0;
+          const isLocked = content.hasAccess === false;
           
           return (
             <div
@@ -158,14 +160,17 @@ export const CourseSidebar = ({ course }: CourseSidebarProps) => {
                 isSelected 
                   ? "bg-slate-200 text-slate-900"
                   : "text-slate-500 hover:bg-slate-300/20 hover:text-slate-600",
-                isCompleted && !isSelected && "text-emerald-600"
+                isCompleted && !isSelected && "text-emerald-600",
+                isLocked && "text-slate-400"
               )}
               onClick={() => onClick(content)}
             >
-              {isCompleted ? (
-                <CheckCircle className="h-4 w-4 text-emerald-600" />
+              {isLocked ? (
+                <Lock className="h-4 w-4 text-slate-400 shrink-0" />
+              ) : isCompleted ? (
+                <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0" />
               ) : (
-                <Circle className="h-4 w-4" />
+                <Circle className="h-4 w-4 shrink-0" />
               )}
               <span className="rtl:text-right ltr:text-left flex-grow mr-1">
                 {content.title}

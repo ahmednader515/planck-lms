@@ -20,6 +20,13 @@ interface Course {
   isPublished: boolean;
 }
 
+interface Chapter {
+  id: string;
+  title: string;
+  position: number;
+  courseId: string;
+}
+
 interface PurchaseCode {
   id: string;
   code: string;
@@ -27,29 +34,41 @@ interface PurchaseCode {
   isUsed: boolean;
   usedAt: string | null;
   createdAt: string;
-  course: {
-    id: string;
-    title: string;
-  };
-  creator: {
-    id: string;
-    fullName: string;
-    phoneNumber: string;
-  };
-  user: {
-    id: string;
-    fullName: string;
-    phoneNumber: string;
-  } | null;
+  course: { id: string; title: string };
+  creator: { id: string; fullName: string; phoneNumber: string };
+  user: { id: string; fullName: string; phoneNumber: string } | null;
 }
 
+interface ChapterCode {
+  id: string;
+  code: string;
+  chapterId: string;
+  isUsed: boolean;
+  usedAt: string | null;
+  createdAt: string;
+  chapter: {
+    id: string;
+    title: string;
+    course: { id: string; title: string };
+  };
+  creator: { id: string; fullName: string; phoneNumber: string };
+  user: { id: string; fullName: string; phoneNumber: string } | null;
+}
+
+type CodeType = "course" | "chapter";
+
 const AdminCodesPage = () => {
-  const [codes, setCodes] = useState<PurchaseCode[]>([]);
+  const [courseCodes, setCourseCodes] = useState<PurchaseCode[]>([]);
+  const [chapterCodes, setChapterCodes] = useState<ChapterCode[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [courseFilter, setCourseFilter] = useState<string>("all");
+  const [codeTypeFilter, setCodeTypeFilter] = useState<"all" | CodeType>("all");
   const [selectedCourse, setSelectedCourse] = useState<string>("");
+  const [selectedChapter, setSelectedChapter] = useState<string>("");
+  const [codeType, setCodeType] = useState<CodeType>("course");
   const [codeCount, setCodeCount] = useState<string>("1");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -65,7 +84,8 @@ const AdminCodesPage = () => {
       const response = await fetch("/api/admin/codes");
       if (response.ok) {
         const data = await response.json();
-        setCodes(data);
+        setCourseCodes(data.courseCodes || []);
+        setChapterCodes(data.chapterCodes || []);
       } else {
         toast.error("حدث خطأ في تحميل الأكواد");
       }
@@ -74,6 +94,26 @@ const AdminCodesPage = () => {
       toast.error("حدث خطأ في تحميل الأكواد");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchChapters = async (courseId: string) => {
+    if (!courseId) {
+      setChapters([]);
+      setSelectedChapter("");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/courses/${courseId}/chapters`);
+      if (response.ok) {
+        const data = await response.json();
+        setChapters(data);
+        setSelectedChapter("");
+      } else {
+        setChapters([]);
+      }
+    } catch (error) {
+      setChapters([]);
     }
   };
 
@@ -92,22 +132,29 @@ const AdminCodesPage = () => {
   };
 
   const handleGenerateCodes = async () => {
-    if (!selectedCourse || !codeCount || parseInt(codeCount) < 1 || parseInt(codeCount) > 100) {
-      toast.error("يرجى اختيار الكورس وعدد الأكواد (1-100)");
+    const count = parseInt(codeCount);
+    if (!codeCount || count < 1 || count > 100) {
+      toast.error("يرجى إدخال عدد الأكواد (1-100)");
+      return;
+    }
+    if (codeType === "course" && !selectedCourse) {
+      toast.error("يرجى اختيار الكورس");
+      return;
+    }
+    if (codeType === "chapter" && !selectedChapter) {
+      toast.error("يرجى اختيار الفصل");
       return;
     }
 
     setIsGenerating(true);
     try {
+      const body = codeType === "course"
+        ? { courseId: selectedCourse, count }
+        : { chapterId: selectedChapter, count };
       const response = await fetch("/api/admin/codes", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          courseId: selectedCourse,
-          count: parseInt(codeCount),
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
 
       if (response.ok) {
@@ -115,8 +162,9 @@ const AdminCodesPage = () => {
         toast.success(`تم إنشاء ${data.count} كود بنجاح`);
         setIsDialogOpen(false);
         setSelectedCourse("");
+        setSelectedChapter("");
         setCodeCount("1");
-        fetchCodes(); // Refresh the list
+        fetchCodes();
       } else {
         const error = await response.text();
         toast.error(error || "حدث خطأ أثناء إنشاء الأكواد");
@@ -140,13 +188,22 @@ const AdminCodesPage = () => {
     }
   };
 
-  const filteredCodes = codes.filter((code) => {
-    const matchesSearch =
-      code.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      code.course.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      code.creator.fullName.toLowerCase().includes(searchTerm.toLowerCase());
+  const courseCodesForFilter = courseCodes.map((c) => ({ ...c, type: "course" as const }));
+  const chapterCodesForFilter = chapterCodes.map((c) => ({
+    ...c,
+    type: "chapter" as const,
+    courseId: c.chapter.course.id,
+  }));
+  const allCodes = [...courseCodesForFilter, ...chapterCodesForFilter];
+
+  const filteredCodes = allCodes.filter((code) => {
+    const searchTarget = code.type === "course"
+      ? `${code.code} ${code.course.title} ${code.creator?.fullName || ""}`
+      : `${code.code} ${code.chapter.title} ${code.chapter.course.title} ${code.creator?.fullName || ""}`;
+    const matchesSearch = searchTarget.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCourse = courseFilter === "all" || code.courseId === courseFilter;
-    return matchesSearch && matchesCourse;
+    const matchesType = codeTypeFilter === "all" || code.type === codeTypeFilter;
+    return matchesSearch && matchesCourse && matchesType;
   });
 
   const usedCodes = filteredCodes.filter((code) => code.isUsed);
@@ -183,21 +240,36 @@ const AdminCodesPage = () => {
                 className="max-w-sm"
               />
             </div>
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="course-filter" className="whitespace-nowrap">تصفية حسب الكورس:</Label>
-              <Select value={courseFilter} onValueChange={setCourseFilter}>
-                <SelectTrigger id="course-filter" className="w-[250px]">
-                  <SelectValue placeholder="جميع الكورسات" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">جميع الكورسات</SelectItem>
-                  {courses.map((course) => (
-                    <SelectItem key={course.id} value={course.id}>
-                      {course.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="type-filter" className="whitespace-nowrap">نوع الكود:</Label>
+                <Select value={codeTypeFilter} onValueChange={(v) => setCodeTypeFilter(v as typeof codeTypeFilter)}>
+                  <SelectTrigger id="type-filter" className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">الكل</SelectItem>
+                    <SelectItem value="course">كورس كامل</SelectItem>
+                    <SelectItem value="chapter">فصل</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="course-filter" className="whitespace-nowrap">تصفية حسب الكورس:</Label>
+                <Select value={courseFilter} onValueChange={setCourseFilter}>
+                  <SelectTrigger id="course-filter" className="w-[250px]">
+                    <SelectValue placeholder="جميع الكورسات" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">جميع الكورسات</SelectItem>
+                    {courses.map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -246,7 +318,8 @@ const AdminCodesPage = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-right">الكود</TableHead>
-                  <TableHead className="text-right">الكورس</TableHead>
+                  <TableHead className="text-right">النوع</TableHead>
+                  <TableHead className="text-right">الكورس / الفصل</TableHead>
                   <TableHead className="text-right">المنشئ</TableHead>
                   <TableHead className="text-right">الحالة</TableHead>
                   <TableHead className="text-right">المستخدم</TableHead>
@@ -257,7 +330,7 @@ const AdminCodesPage = () => {
               </TableHeader>
               <TableBody>
                 {filteredCodes.map((code) => (
-                  <TableRow key={code.id}>
+                  <TableRow key={`${code.type}-${code.id}`}>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <code className="font-mono text-sm bg-muted px-2 py-1 rounded">
@@ -277,11 +350,20 @@ const AdminCodesPage = () => {
                         </Button>
                       </div>
                     </TableCell>
-                    <TableCell>{code.course.title}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {code.type === "course" ? "كورس كامل" : "فصل"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {code.type === "course"
+                        ? code.course.title
+                        : `${code.chapter.course.title} → ${code.chapter.title}`}
+                    </TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{code.creator.fullName}</div>
-                        <div className="text-sm text-muted-foreground">{code.creator.phoneNumber}</div>
+                        <div className="font-medium">{code.creator?.fullName || "-"}</div>
+                        <div className="text-sm text-muted-foreground">{code.creator?.phoneNumber || ""}</div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -332,20 +414,67 @@ const AdminCodesPage = () => {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="course" className="mb-2 block">الكورس</Label>
-              <Select value={selectedCourse} onValueChange={setSelectedCourse}>
+              <Label className="mb-2 block">نوع الكود</Label>
+              <Select value={codeType} onValueChange={(v) => { setCodeType(v as CodeType); fetchChapters(selectedCourse); }}>
                 <SelectTrigger>
-                  <SelectValue placeholder="اختر الكورس" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {courses.map((course) => (
-                    <SelectItem key={course.id} value={course.id}>
-                      {course.title}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="course">كورس كامل</SelectItem>
+                  <SelectItem value="chapter">فصل</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {codeType === "course" ? (
+              <div>
+                <Label htmlFor="course" className="mb-2 block">الكورس</Label>
+                <Select value={selectedCourse} onValueChange={setSelectedCourse}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر الكورس" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {courses.map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <Label className="mb-2 block">الكورس</Label>
+                  <Select value={selectedCourse} onValueChange={(v) => { setSelectedCourse(v); fetchChapters(v); }}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر الكورس أولاً" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {courses.map((course) => (
+                        <SelectItem key={course.id} value={course.id}>
+                          {course.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="mb-2 block">الفصل</Label>
+                  <Select value={selectedChapter} onValueChange={setSelectedChapter} disabled={!selectedCourse}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر الفصل" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {chapters.map((chapter) => (
+                        <SelectItem key={chapter.id} value={chapter.id}>
+                          {chapter.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
             <div>
               <Label htmlFor="count" className="mb-2 block">عدد الأكواد</Label>
               <Input
@@ -365,7 +494,12 @@ const AdminCodesPage = () => {
             </Button>
             <Button
               onClick={handleGenerateCodes}
-              disabled={isGenerating || !selectedCourse || !codeCount}
+              disabled={
+                isGenerating ||
+                !codeCount ||
+                (codeType === "course" && !selectedCourse) ||
+                (codeType === "chapter" && !selectedChapter)
+              }
               className="bg-brand hover:bg-brand/90"
             >
               {isGenerating ? "جاري الإنشاء..." : "إنشاء"}

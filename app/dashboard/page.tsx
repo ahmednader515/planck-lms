@@ -77,13 +77,22 @@ const CoursesPage = async () => {
     }
   });
 
-  // Get student statistics
-  const totalCourses = await db.purchase.count({
-    where: {
-      userId: session.user.id,
-      status: "ACTIVE"
-    }
-  });
+  // Get student statistics - courses = purchased OR has at least one chapter unlocked
+  const [purchasedCourseIds, chapterAccessCourseIds] = await Promise.all([
+    db.purchase.findMany({
+      where: { userId: session.user.id, status: "ACTIVE" },
+      select: { courseId: true }
+    }),
+    db.chapterAccess.findMany({
+      where: { userId: session.user.id },
+      select: { chapter: { select: { courseId: true } } }
+    })
+  ]);
+  const allCourseIds = new Set([
+    ...purchasedCourseIds.map((p) => p.courseId),
+    ...chapterAccessCourseIds.map((ca) => ca.chapter.courseId)
+  ]);
+  const totalCourses = allCourseIds.size;
 
   const totalChapters = await db.userProgress.count({
     where: {
@@ -98,17 +107,10 @@ const CoursesPage = async () => {
     }
   });
 
-  // Get total quizzes from courses the student has purchased
+  // Get total quizzes from courses the student has access to (purchased or chapter access)
   const totalQuizzes = await db.quiz.count({
     where: {
-      course: {
-        purchases: {
-          some: {
-            userId: session.user.id,
-            status: "ACTIVE"
-          }
-        }
-      },
+      courseId: { in: Array.from(allCourseIds) },
       isPublished: true
     }
   });
@@ -164,12 +166,27 @@ const CoursesPage = async () => {
 
   const courses = await db.course.findMany({
     where: {
-      purchases: {
-        some: {
-          userId: session.user.id,
-          status: "ACTIVE"
+      OR: [
+        {
+          purchases: {
+            some: {
+              userId: session.user.id,
+              status: "ACTIVE"
+            }
+          }
+        },
+        {
+          chapters: {
+            some: {
+              chapterAccesses: {
+                some: {
+                  userId: session.user.id
+                }
+              }
+            }
+          }
         }
-      }
+      ]
     },
     include: {
       chapters: {
@@ -205,6 +222,23 @@ const CoursesPage = async () => {
       const totalQuizzes = course.quizzes.length;
       const totalContent = totalChapters + totalQuizzes;
 
+      const hasFullAccess = course.purchases.some(
+        (p) => p.userId === session.user.id && p.status === "ACTIVE"
+      );
+      const chapterAccessIds = hasFullAccess
+        ? new Set(course.chapters.map((c) => c.id))
+        : new Set(
+            (
+              await db.chapterAccess.findMany({
+                where: {
+                  userId: session.user.id,
+                  chapterId: { in: course.chapters.map((c) => c.id) }
+                },
+                select: { chapterId: true }
+              })
+            ).map((ca) => ca.chapterId)
+          );
+
       const completedChapters = await db.userProgress.count({
         where: {
           userId: session.user.id,
@@ -215,7 +249,6 @@ const CoursesPage = async () => {
         }
       });
 
-      // Get unique completed quizzes by using findMany and counting the results
       const completedQuizResults = await db.quizResult.findMany({
         where: {
           studentId: session.user.id,
@@ -223,12 +256,9 @@ const CoursesPage = async () => {
             in: course.quizzes.map(quiz => quiz.id)
           }
         },
-        select: {
-          quizId: true
-        }
+        select: { quizId: true }
       });
 
-      // Count unique quizIds
       const uniqueQuizIds = new Set(completedQuizResults.map(result => result.quizId));
       const completedQuizzes = uniqueQuizIds.size;
 
@@ -238,10 +268,20 @@ const CoursesPage = async () => {
         ? (completedContent / totalContent) * 100 
         : 0;
 
+      const chaptersWithPosition = await db.chapter.findMany({
+        where: { courseId: course.id, isPublished: true },
+        select: { id: true, position: true, isFree: true },
+        orderBy: { position: "asc" }
+      });
+      const firstAccessibleChapter = chaptersWithPosition.find(
+        (ch) => hasFullAccess || chapterAccessIds.has(ch.id) || ch.isFree
+      );
+
       return {
         ...course,
-        progress
-      } as CourseWithProgress;
+        progress,
+        firstAccessibleChapterId: firstAccessibleChapter?.id
+      } as CourseWithProgress & { firstAccessibleChapterId?: string };
     })
   );
 
@@ -464,7 +504,11 @@ const CoursesPage = async () => {
                     variant="default"
                     asChild
                   >
-                    <Link href={course.chapters.length > 0 ? `/courses/${course.id}/chapters/${course.chapters[0].id}` : `/courses/${course.id}`}>
+                    <Link href={
+                      (course as CourseWithProgress & { firstAccessibleChapterId?: string }).firstAccessibleChapterId
+                        ? `/courses/${course.id}/chapters/${(course as CourseWithProgress & { firstAccessibleChapterId?: string }).firstAccessibleChapterId}`
+                        : `/courses/${course.id}`
+                    }>
                       متابعة التعلم
                     </Link>
                   </Button>
