@@ -6,6 +6,7 @@ import { getDashboardUrlByRole } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { BookOpen, Play, Clock, Trophy, Wallet, TrendingUp, BookOpen as BookOpenIcon } from "lucide-react";
+import { PlyrVideoPlayer } from "@/components/plyr-video-player";
 import Link from "next/link";
 import Image from "next/image";
 import { Course, Purchase, Chapter } from "@prisma/client";
@@ -346,20 +347,44 @@ const CoursesPage = async () => {
           <h2 className="text-xl font-semibold mb-4">آخر فصل كنت تشاهده</h2>
           <div className="bg-card rounded-xl overflow-hidden border shadow-lg">
             <div className="grid grid-cols-1 lg:grid-cols-2">
-              {/* Image Section */}
-              <div className="relative h-64 lg:h-full">
-                <Image
-                  src={lastWatchedChapter.chapter.course.imageUrl || "/placeholder.png"}
-                  alt={lastWatchedChapter.chapter.course.title}
-                  fill
-                  className="object-cover"
-                />
-                <div className="absolute inset-0 bg-black/30" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
-                    <Play className="h-8 w-8 text-white" />
-                  </div>
-                </div>
+              {/* Video or Image Section */}
+              <div className="relative aspect-video lg:min-h-[280px]">
+                {(lastWatchedChapter.chapter.videoUrl ||
+                  lastWatchedChapter.chapter.youtubeVideoId) ? (
+                  <PlyrVideoPlayer
+                    key={lastWatchedChapter.chapter.id}
+                    videoUrl={
+                      lastWatchedChapter.chapter.videoType === "UPLOAD"
+                        ? lastWatchedChapter.chapter.videoUrl ?? undefined
+                        : undefined
+                    }
+                    youtubeVideoId={
+                      lastWatchedChapter.chapter.videoType === "YOUTUBE"
+                        ? lastWatchedChapter.chapter.youtubeVideoId ?? undefined
+                        : undefined
+                    }
+                    videoType={
+                      (lastWatchedChapter.chapter.videoType as "UPLOAD" | "YOUTUBE") || "UPLOAD"
+                    }
+                    storageKey={lastWatchedChapter.chapter.id}
+                    className="w-full h-full"
+                  />
+                ) : (
+                  <>
+                    <Image
+                      src={lastWatchedChapter.chapter.course.imageUrl || "/placeholder.png"}
+                      alt={lastWatchedChapter.chapter.course.title}
+                      fill
+                      className="object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
+                        <Play className="h-8 w-8 text-white" />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Content Section */}

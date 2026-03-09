@@ -336,30 +336,15 @@ const ChapterPage = () => {
           {/* Video Player Section */}
           <div className="aspect-video relative bg-black rounded-lg overflow-hidden">
             {chapter.videoUrl ? (
-              (() => {
-                console.log("🔍 Rendering PlyrVideoPlayer with props:", {
-                  videoUrl: chapter.videoType === "UPLOAD" ? chapter.videoUrl : undefined,
-                  youtubeVideoId: chapter.videoType === "YOUTUBE" ? chapter.youtubeVideoId || undefined : undefined,
-                  videoType: (chapter.videoType as "UPLOAD" | "YOUTUBE") || "UPLOAD",
-                  key: `${chapter.id}-${chapter.videoUrl}-${chapter.videoType}`
-                });
-                return (
-                  <PlyrVideoPlayer
+              <PlyrVideoPlayer
                     key={`${chapter.id}-${chapter.videoUrl}-${chapter.videoType}`}
                     videoUrl={chapter.videoType === "UPLOAD" ? chapter.videoUrl : undefined}
                     youtubeVideoId={chapter.videoType === "YOUTUBE" ? chapter.youtubeVideoId || undefined : undefined}
                     videoType={(chapter.videoType as "UPLOAD" | "YOUTUBE") || "UPLOAD"}
+                    storageKey={chapter.id}
                     className="w-full h-full"
                     onEnded={onEnd}
-                    onTimeUpdate={(currentTime) => {
-                      // Only log in development
-                      if (process.env.NODE_ENV === 'development') {
-                        console.log("🔍 Video time update:", currentTime);
-                      }
-                    }}
                   />
-                );
-              })()
             ) : (
               <div className="absolute inset-0 flex items-center justify-center text-white">
                 لا يوجد فيديو متاح
